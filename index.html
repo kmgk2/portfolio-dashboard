@@ -272,6 +272,7 @@ td:last-child{text-align:center;}
 @media (max-width: 600px) {
   .hdr { height: 48px; padding: 0 10px; }
   #clock, .logo-sub, #api-select, #ver-badge, .btn-text, .live-badge span { display: none !important; }
+  .btn-changelog { display: flex !important; } /* 릴리즈 노트 버튼은 모바일에서도 항상 표시 */
   .live-badge { padding: 4px 6px; }
   .hdr-right { gap: 5px; }
   .btn { 
@@ -717,7 +718,7 @@ function loadData() {
     <div class="logo">
       <span class="logo-icon">🐯</span>
       <div>
-        <div class="logo-txt">배방산호랭이 <span id="ver-badge" onclick="toggleChangelog()" title="변경이력 보기" style="cursor:pointer; font-size:9px; vertical-align:middle; background:linear-gradient(135deg,#3d7fff,#00e5a0); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:800; border:1px solid rgba(255,255,255,0.2); padding:1px 4px; border-radius:4px; margin-left:4px;">v3.2.0</span></div>
+        <div class="logo-txt">배방산호랭이 <span id="ver-badge" onclick="toggleChangelog()" title="변경이력 보기" style="cursor:pointer; font-size:9px; vertical-align:middle; background:linear-gradient(135deg,#3d7fff,#00e5a0); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:800; border:1px solid rgba(255,255,255,0.2); padding:1px 4px; border-radius:4px; margin-left:4px;">v3.3.0</span></div>
         <div class="logo-sub">My Portfolio Dashboard</div>
       </div>
     </div>
@@ -730,6 +731,7 @@ function loadData() {
       <button class="btn btn-ghost btn-sm" onclick="openApiKeyModal()" title="FMP API 키 설정">🔑</button>
       <button class="btn btn-ghost btn-sm" onclick="testApi()" title="API 테스트">🧪</button>
       <span id="clock"></span>
+      <button class="btn btn-ghost btn-changelog" onclick="toggleChangelog()" title="릴리즈 노트">📋</button>
       <button class="btn btn-ghost" onclick="openAcctModal()" title="계좌 관리"><span>⚙</span><span class="btn-text"> 계좌관리</span></button>
       <button class="btn btn-gold" id="add-button" onclick="openAddModal()" title="종목 추가"><span>＋</span><span class="btn-text"> 종목추가</span></button>
       <button class="btn btn-ghost btn-sm" onclick="refreshAll()" title="새로고침">↻</button>
@@ -743,6 +745,20 @@ function loadData() {
     <div class="cl-title">
       <span>📋 변경 이력 (Release Notes)</span>
       <button class="modal-close" onclick="toggleChangelog()">✕</button>
+    </div>
+
+    <div class="cl-ver">
+      <span class="cl-ver-lbl">v3.3.0 — 2026.04.13</span>
+      <ul class="cl-item">
+        <li><strong>프록시 캐시 오염 해결:</strong> allorigins.win(5분 캐시)이 Promise.any 경쟁에서 항상 이기던 문제 수정 → corsproxy.io 우선 순차 시도로 실시간 데이터 보장</li>
+        <li><strong>주배당 차트 수정:</strong> 주배당(freq=52) 항목이 1주치 금액만 표시되던 버그 수정 → 월간 수령액(연간÷12) 기준으로 올바르게 표시</li>
+        <li><strong>국내 ETF (.KS) Naver 폴백:</strong> Yahoo Finance 프록시 실패 시 Naver Finance basic API로 자동 전환하여 441640.KS 등 한국 종목 안정적 조회</li>
+        <li><strong>지수바 비차단 렌더링:</strong> 스켈레톤 즉시 표시 후 각 항목이 로드되는 대로 개별 업데이트 (전체 대기 제거)</li>
+        <li><strong>코스피/코스닥 전용 경로:</strong> Naver Index API를 Yahoo와 독립 경로로 분리하여 안정성 향상</li>
+        <li><strong>배당 캐시 오염 방지:</strong> rate=0으로 저장된 실패 캐시가 재조회를 영구 차단하던 버그 수정</li>
+        <li><strong>국내 공포탐욕지수 제거:</strong> kfg-api.stockplus.com API 불안정으로 항목 제거</li>
+        <li><strong>모바일 릴리즈 노트 접근:</strong> 헤더 우측에 📋 버튼 추가 → 화면 축소 시에도 변경이력 항상 접근 가능</li>
+      </ul>
     </div>
 
     <div class="cl-ver">
@@ -1125,7 +1141,7 @@ const API_CONFIG = {
     proxy: 'https://api.allorigins.win/get?url=',
     baseUrl: 'https://query1.finance.yahoo.com/v8/finance/chart/',
     quoteUrl: 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=',
-    params: 'interval=1d&range=5d&includePrePost=true'
+    params: 'interval=1d&range=1d&includePrePost=false'
   },
   fmp: {
     proxy: null, // 직접 호출 가능
@@ -1163,7 +1179,13 @@ function load(){
   const cachedPrices = localStorage.getItem('ptf_prices_cache');
   if(cachedPrices) prices = JSON.parse(cachedPrices);
   const cachedDivs = localStorage.getItem('ptf_div_cache');
-  if(cachedDivs) Object.assign(divCache, JSON.parse(cachedDivs));
+  if(cachedDivs) {
+    const parsed = JSON.parse(cachedDivs);
+    // rate=0인 항목은 제외 — 이전 실패 결과로 캐시가 오염되면 재조회가 영구 차단됨
+    Object.entries(parsed).forEach(([k, v]) => {
+      if(v && v.rate > 0) divCache[k] = v;
+    });
+  }
 }
 
 function saveCache() {
@@ -1251,12 +1273,12 @@ async function fetchOne(ticker, forceApi){
   const targetApi = forceApi || currentApi;
   const config = API_CONFIG[targetApi];
   
-  // 프록시 리스트 보강
+  // 비캐싱 프록시 우선, allorigins(5분 캐시)는 마지막
   const proxies = [
-    'https://api.codetabs.com/v1/proxy?quest=',
-    'https://api.allorigins.win/get?url=',
     'https://corsproxy.io/?',
-    'https://thingproxy.freeboard.io/fetch/'
+    'https://api.codetabs.com/v1/proxy?quest=',
+    'https://thingproxy.freeboard.io/fetch/',
+    'https://api.allorigins.win/get?url='
   ];
 
   async function tryFetch(proxyIdx = 0, retryCount = 0) {
@@ -1273,7 +1295,7 @@ async function fetchOne(ticker, forceApi){
         }
         
         const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 8000);
+        const tid = setTimeout(() => controller.abort(), 4000);
         res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(tid);
         
@@ -1296,10 +1318,10 @@ async function fetchOne(ticker, forceApi){
         }
         if (p === undefined || p === null) return null;
 
-        const _closes = (result_data.indicators?.quote?.[0]?.close || []).filter(c => c != null);
-        const prev = _closes.length >= 2 ? _closes[_closes.length - 2] : (m.chartPreviousClose || m.previousClose || p);
-        const chg = p - prev;
-        return {price:p, change:chg, changePct:(chg/prev)*100, currency:m.currency, ts:Date.now(),
+        // Yahoo 메타에서 직접 변화량 사용 (수동 계산보다 정확)
+        const chg = m.regularMarketChange ?? (p - (m.chartPreviousClose || m.previousClose || p));
+        const chgPct = m.regularMarketChangePercent ?? (chg / (m.chartPreviousClose || m.previousClose || p) * 100);
+        return {price:p, change:chg, changePct:chgPct, currency:m.currency, ts:Date.now(),
           dividendYield: m.dividendYield || 0
         };
 
@@ -1319,12 +1341,38 @@ async function fetchOne(ticker, forceApi){
 
   try {
     const data = await tryFetch();
-    if(data) prices[ticker] = data;
-    return data;
-  } catch(e) {
-    console.error(`API Error (${targetApi}) for ${ticker}:`, e);
-    return null;
+    if(data) { prices[ticker] = data; return data; }
+  } catch(e) { console.warn(`Yahoo fetch failed for ${ticker}`); }
+
+  // 한국 주식(.KS) Yahoo 실패 시 Naver 가격 API 폴백
+  if(ticker.toUpperCase().endsWith('.KS')) {
+    const code = ticker.replace(/\.KS$/i, '');
+    const naverUrl = `https://m.stock.naver.com/api/stock/${code}/basic`;
+    const naverProxies = [
+      'https://api.allorigins.win/get?url=',
+      'https://corsproxy.io/?'
+    ];
+    for(const proxy of naverProxies) {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(proxy + encodeURIComponent(naverUrl), { signal: controller.signal });
+        clearTimeout(tid);
+        if(!res.ok) continue;
+        const raw = await res.json();
+        const j = proxy.includes('allorigins') ? JSON.parse(raw.contents) : raw;
+        const price = parseFloat((j.closePrice || '0').replace(/,/g,''));
+        const change = parseFloat((j.compareToPreviousClosePrice || '0').replace(/,/g,''));
+        if(price > 0) {
+          const prev = price - change;
+          const d = { price, change, changePct: prev !== 0 ? (change/prev)*100 : 0, currency:'KRW', ts:Date.now() };
+          prices[ticker] = d;
+          return d;
+        }
+      } catch(e) {}
+    }
   }
+  return null;
 }
 
 async function fetchBatch(tickers, forceApi){
@@ -1352,48 +1400,42 @@ async function fetchQuotesBatch(tickers) {
 
   await Promise.all(chunks.map(async chunk => {
     const symbols = chunk.join(',');
-    const base = `${API_CONFIG.yahoo.quoteUrl}${encodeURIComponent(symbols)}&_=${Date.now()}`;
+    // &rnd= 파라미터로 프록시 캐시 완전 차단
+    const base = `${API_CONFIG.yahoo.quoteUrl}${encodeURIComponent(symbols)}&rnd=${Date.now()}`;
+
+    // 순차 시도: 비캐싱 프록시(corsproxy, codetabs) 우선 → allorigins는 최후 폴백
+    // allorigins.win은 5분 캐시 → Promise.any로 병렬 시도시 항상 이겨 구버전 데이터 반환
     const proxies = [
-      'https://api.codetabs.com/v1/proxy?quest=',
-      'https://api.allorigins.win/get?url=',
-      'https://corsproxy.io/?'
+      { url: 'https://corsproxy.io/?',             isAllorigins: false },
+      { url: 'https://api.codetabs.com/v1/proxy?quest=', isAllorigins: false },
+      { url: 'https://api.allorigins.win/get?url=', isAllorigins: true  }
     ];
 
-    for(let i=0; i<proxies.length; i++) {
+    for(const proxy of proxies) {
       try {
-        let proxyUrl = proxies[i];
-        if (proxyUrl.includes('allorigins')) {
-          proxyUrl += encodeURIComponent(base);
-        } else {
-          proxyUrl += base;
-        }
-          
+        const proxyUrl = proxy.isAllorigins ? proxy.url + encodeURIComponent(base) : proxy.url + base;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); 
-        
+        const tid = setTimeout(() => controller.abort(), 5000);
         const res = await fetch(proxyUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        clearTimeout(tid);
         if(!res.ok) continue;
-        
         const data = await res.json();
-        const j = proxies[i].includes('allorigins') ? JSON.parse(data.contents) : data;
-        
+        const j = proxy.isAllorigins ? JSON.parse(data.contents) : data;
         const results = j?.quoteResponse?.result;
-        if(results && Array.isArray(results)) {
-          results.forEach(q => {
-            const ticker = q.symbol;
-            prices[ticker] = {
-              price: q.regularMarketPrice,
-              change: q.regularMarketChange || 0,
-              changePct: q.regularMarketChangePercent || 0,
-              currency: q.currency,
-              ts: Date.now(),
-              dividendYield: (q.trailingAnnualDividendYield || q.dividendYield || 0)
-            };
-          });
-          return; // 이 청크는 성공
-        }
-      } catch(e) { console.warn(`Chunk [${symbols}] proxy ${i} failed.`, e); }
+        if(!results || !Array.isArray(results)) continue;
+        results.forEach(q => {
+          prices[q.symbol] = {
+            price: q.regularMarketPrice,
+            change: q.regularMarketChange || 0,
+            changePct: q.regularMarketChangePercent || 0,
+            currency: q.currency,
+            ts: Date.now(),
+            dividendYield: (q.trailingAnnualDividendYield || q.dividendYield || 0),
+            dividendRate: (q.trailingAnnualDividendRate || 0)
+          };
+        });
+        return; // 성공 → 다음 프록시 시도 불필요
+      } catch(e) { /* 다음 프록시 */ }
     }
   }));
   saveCache();
@@ -1458,16 +1500,20 @@ async function fetchKoreanIndexRobust(){
         const data = await res.json();
         const json = proxy.includes('allorigins') ? JSON.parse(data.contents) : data;
         
-        if(Array.isArray(json) && json.length > 0){
-          const entry = json[0];
-          const price = parseFloat(entry.closePrice.replace(/,/g, ''));
-          const change = parseFloat(entry.compareToPreviousClosePrice.replace(/,/g, ''));
+        // 응답 형식이 배열인 경우와 {result: [...]} 형태인 경우 모두 대응
+        let entry = null;
+        if (Array.isArray(json)) entry = json[0];
+        else if (json && json.result && Array.isArray(json.result)) entry = json.result[0];
+        
+        if(entry){
+          const price = parseFloat((entry.closePrice || entry.now || '0').replace(/,/g, ''));
+          const change = parseFloat((entry.compareToPreviousClosePrice || entry.diff || '0').replace(/,/g, ''));
           const prev = price - change;
           
           prices[item.ticker] = {
             price: price,
             change: change,
-            changePct: (change / prev) * 100,
+            changePct: prev !== 0 ? (change / prev) * 100 : 0,
             currency: 'KRW',
             ts: Date.now()
           };
@@ -1491,52 +1537,48 @@ async function fetchKoreanIndexRobust(){
 //  RENDER INDEX BAR
 // ═══════════════════════════════════════════
 async function renderIdx(){
-  // 1. FMP 다이렉트 호출 (프록시 우회) - 가장 확실함
-  if(API_CONFIG.fmp.apiKey){
-    try { await fetchIdxFromFMPDirect(IDX_TICKERS); } catch(e){}
-  }
-
-  // 2. 코스피/코스닥 먼저 시작 (Naver + Yahoo Robust)
-  const krPromise = fetchKoreanIndexRobust();
-
-  // 3. 나머지 지수 fetch
-  try { await fetchQuotesBatch(IDX_TICKERS); } catch(e){}
-
-  // 4. 바 렌더 (fetchKoreanIndices가 이미 완료됐으면 바로 표시됨)
   const bar = document.getElementById('idx-bar');
   if(!bar) return;
 
-  function renderIdxItem(t, i, el){
+  // 헬퍼: 단일 항목 DOM 업데이트
+  function updateItem(t, i) {
     const d = prices[t];
-    el.onclick = () => openTradingView(t);
+    const el = document.getElementById('idx-item-' + t.replace(/[^a-zA-Z0-9]/g,'_'));
+    if(!el) return;
     if(!d || !d.price){
-      el.innerHTML = `<div class="idx-label">${IDX_LABELS[i]}</div><div class="idx-price neu">로딩중</div><div class="idx-chg neu">--</div>`;
+      el.innerHTML = `<div class="idx-label">${IDX_LABELS[i]}</div><div class="idx-price neu">--</div><div class="idx-chg neu">--</div>`;
     } else {
       const c = cls(d.change);
       el.innerHTML = `<div class="idx-label">${IDX_LABELS[i]}</div><div class="idx-price ${c}">${f2(d.price)}</div><div class="idx-chg ${c}">${fd(d.change)} (${fp(d.changePct)})</div>`;
     }
   }
 
+  // 1. 스켈레톤 즉시 렌더 (블로킹 없음)
   bar.innerHTML = '';
-  IDX_TICKERS.forEach((t,i)=>{
+  IDX_TICKERS.forEach((t, i) => {
     const el = document.createElement('div');
     el.className = 'idx-item';
     el.id = 'idx-item-' + t.replace(/[^a-zA-Z0-9]/g,'_');
-    renderIdxItem(t, i, el);
+    el.onclick = () => openTradingView(t);
+    el.innerHTML = `<div class="idx-label">${IDX_LABELS[i]}</div><div class="idx-price neu">--</div><div class="idx-chg neu">--</div>`;
     bar.appendChild(el);
   });
-
-  // 5. 아직 완료 안 됐으면 완료 시 ID로 해당 아이템만 갱신
-  krPromise.then(() => {
-    ['^KS11', '^KQ11'].forEach(t => {
-      const i  = IDX_TICKERS.indexOf(t);
-      const el = document.getElementById('idx-item-' + t.replace(/[^a-zA-Z0-9]/g,'_'));
-      if(el) renderIdxItem(t, i, el);
-    });
-  }).catch(()=>{});
-
-  // 6. 공포탐욕지수 업데이트
   fetchFearGreed(bar);
+
+  // 2. 배치 fetch (6초 캡) → 성공 항목 즉시 반영
+  try {
+    await Promise.race([fetchQuotesBatch(IDX_TICKERS), new Promise(r => setTimeout(r, 6000))]);
+  } catch(e) {}
+  IDX_TICKERS.forEach(updateItem);
+
+  // 3. 아직 없는 해외 지수만 개별 fetch (비동기, UI 블로킹 없음)
+  IDX_TICKERS.filter(t => !prices[t]?.price && t !== '^KS11' && t !== '^KQ11')
+    .forEach(t => fetchOne(t).then(() => updateItem(t, IDX_TICKERS.indexOf(t))).catch(()=>{}));
+
+  // 4. 코스피/코스닥: Naver API 전용 경로 (Yahoo 실패 시에도 안정적으로 동작)
+  fetchKoreanIndexRobust().then(() => {
+    ['^KS11', '^KQ11'].forEach(t => updateItem(t, IDX_TICKERS.indexOf(t)));
+  }).catch(()=>{});
 }
 
 // 복잡한 보조 스크래퍼 제거
@@ -1733,7 +1775,7 @@ async function fetchOneDividend(ticker, proxies) {
       // 커버드콜 ETF는 0.0002 같은 이상값을 반환하는 경우 있음 → 필터 필요
       const metaYield = meta?.dividendYield || 0;
       const metaPrice = meta?.regularMarketPrice || curPrice;
-      if (metaYield >= 0.001 && metaYield <= 0.80 && metaPrice > 0) {
+      if (metaYield >= 0.001 && metaYield <= 5.0 && metaPrice > 0) {
         return { rate: metaPrice * metaYield, yield: metaYield, events: [] };
       }
 
@@ -1741,9 +1783,13 @@ async function fetchOneDividend(ticker, proxies) {
     } catch(e) { /* 다음 프록시 */ }
   }
 
-  // ★ 3순위 (최후): 가격 fetch 시 저장된 dividendYield — 동일 유효 범위 검증
+  // ★ 3순위 (최후): 가격 fetch 시 저장된 dividendRate (per-share) 또는 dividendYield
+  const savedRate = priceData?.dividendRate || 0;
+  if (savedRate > 0) {
+    return { rate: savedRate, yield: curPrice > 0 ? savedRate / curPrice : 0, events: [] };
+  }
   const savedYield = priceData?.dividendYield || 0;
-  if (savedYield >= 0.001 && savedYield <= 0.80 && curPrice > 0) {
+  if (savedYield >= 0.001 && savedYield <= 5.0 && curPrice > 0) {
     return { rate: curPrice * savedYield, yield: savedYield, events: [] };
   }
 
@@ -1869,51 +1915,7 @@ async function fetchFearGreed(bar){
   el.innerHTML = '<div class="idx-label">😱 CNN공포탐욕</div><div class="idx-price neu">N/A</div><div class="idx-chg neu">연결실패</div>';
 }
 
-async function fetchKospiFearGreed(bar){
-  let el = document.getElementById('idx-kospi-fg');
-  if(!el){
-    el = document.createElement('div');
-    el.className = 'idx-item';
-    el.id = 'idx-kospi-fg';
-    el.innerHTML = '<div class="idx-label">🐯 국전공포탐욕</div><div class="idx-price neu">...</div><div class="idx-chg neu">로딩중</div>';
-    bar.appendChild(el);
-  }
-
-  const KFG_URL = 'https://kfg-api.stockplus.com/api/v1/status.json';
-  const sources = [
-    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(KFG_URL + '?_=' + Date.now()),
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(KFG_URL),
-    'https://thingproxy.freeboard.io/fetch/' + KFG_URL
-  ];
-
-  for(let i=0; i<sources.length; i++){
-    try {
-      const res = await fetch(sources[i]);
-      if(!res.ok) continue;
-      const json = await res.json();
-      
-      if(json && json.current && json.current.score !== undefined){
-        const score = json.current.score;
-        const prev = json.previous?.score || score;
-        const diff = score - prev;
-        let label, color;
-        if(score <= 20)      { label = '극단공포'; color = '#ef5350'; }
-        else if(score <= 40) { label = '공포';     color = '#ff7043'; }
-        else if(score <= 60) { label = '중립';     color = '#b0bec5'; }
-        else if(score <= 80) { label = '탐욕';     color = '#66bb6a'; }
-        else                 { label = '극단탐욕'; color = '#26c6da'; }
-        
-        const diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
-        const diffCls = diff >= 0 ? 'up' : 'down';
-        el.innerHTML = `<div class="idx-label">🐯 국전공포탐욕</div>`
-          + `<div class="idx-price" style="color:${color}">${score}</div>`
-          + `<div class="idx-chg ${diffCls}">${diffStr} · ${label}</div>`;
-        return;
-      }
-    } catch(e){ console.warn('KOSPI F&G proxy failed:', e); }
-  }
-  el.innerHTML = '<div class="idx-label">🐯 국전공포탐욕</div><div class="idx-price neu">N/A</div><div class="idx-chg neu">연결실패</div>';
-}
+// 국내 공포탐욕지수: API 불안정으로 제거됨
 
 // ═══════════════════════════════════════════
 //  RENDER TABS
@@ -2363,11 +2365,12 @@ function drawDivBarChart(rows) {
     const finalAnnualAmt = ccy === 'KRW' ? annualAmtUSD * usdToKrw : annualAmtUSD;
 
     const freq = div.freq || 4; // 기본 분출 빈도 (월배당은 12, 분기는 4)
-    const perEvent = finalAnnualAmt / freq;
 
     if (freq >= 12) {
-      // 월배당 혹은 고빈도: 모든 달에 균등 배분
-      for (let m = 0; m < 12; m++) monthly[m] += perEvent;
+      // 월배당/주배당/격주배당: 차트는 월 단위이므로 연간 금액을 12로 나눔
+      // (perEvent = annualAmt/52 는 1주치 → 틀림, annualAmt/12 = 1달치 → 맞음)
+      const monthlyAmt = finalAnnualAmt / 12;
+      for (let m = 0; m < 12; m++) monthly[m] += monthlyAmt;
     } else {
       // 분기/반기/연배당: 실제 이력 기반 혹은 추정치로 특정 달에 배분
       let targetMonths = [];
@@ -2829,15 +2832,6 @@ async function testApi(){
   }
 }
 
-function loadApiKey(){
-  const key = localStorage.getItem('fmp_api_key');
-  if(key) {
-    API_CONFIG.fmp.apiKey = key;
-    console.log('FMP API 키 로드됨:', key.substring(0, 8) + '...');
-  } else {
-    console.log('FMP API 키가 설정되지 않음');
-  }
-}
 
 function refreshAll(){
   console.log('refreshAll called');
